@@ -1,0 +1,213 @@
+# ==============================================================================
+# MOH Shared PostgreSQL Database Stack
+#
+# Purpose:
+#   This Docker Compose project is responsible ONLY for the shared PostgreSQL
+#   database infrastructure used by multiple MOH-hosted applications.
+#
+# What this stack provides:
+#   - One persistent PostgreSQL container
+#   - One pgAdmin container for browser-based DB administration
+#   - One scheduled backup container using pg_dump
+#   - One external Docker network that application stacks can join
+#   - Host-mounted backup directory for easy copying/offsite sync
+#
+# Recommended architecture:
+#   - One shared PostgreSQL server/container
+#   - Separate database per application
+#   - Separate database user per application
+#
+# Important:
+#   - Rebuilding containers does NOT delete the database data because the
+#     PostgreSQL data directory is stored in a named Docker volume.
+#   - Backups are stored in ./database/backups on the host machine.
+#   - Do NOT run `docker compose down -v` unless you intentionally want to
+#     destroy the PostgreSQL data volume.
+# ==============================================================================
+
+name: moh-shared-postgres
+
+services:
+  # ============================================================================
+  # POSTGRESQL DATABASE SERVER
+  # ============================================================================
+  moh_postgres:
+    image: postgres:16
+    container_name: moh_postgres
+    restart: always
+
+    # Exposes PostgreSQL to the host/server network.
+    #
+    # Internal Docker apps should connect through:
+    #   moh_postgres:5432
+    #
+    # Apps outside this Docker network may connect through:
+    #   <server-ip-or-domain>:${POSTGRES_HOST_PORT}
+    #
+    # Security recommendation:
+    #   If all apps run inside Docker on this server, you can remove this `ports`
+    #   section entirely and use only Docker internal networking.
+    ports:
+      - "${POSTGRES_HOST_PORT:-55432}:5432"
+
+    env_file:
+      - ./.env
+
+    environment:
+      # These values are used only when the database volume is initialized
+      # for the first time. Changing them later will not automatically recreate
+      # users or databases if the volume already exists.
+      POSTGRES_USER: ${POSTGRES_SUPERUSER}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DEFAULT_DB}
+
+      # Helpful for logs and time-sensitive backup operations.
+      TZ: ${TZ:-Africa/Nairobi}
+
+      # Optional initialization settings.
+      POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:---encoding=UTF8 --locale=C}
+
+    volumes:
+      # Named volume for PostgreSQL data persistence.
+      # This survives container rebuilds and `docker compose down`.
+      - moh_postgres_data:/var/lib/postgresql/data
+
+      # Initialization SQL/scripts.
+      # Files in this directory run only once when the database volume is empty.
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_SUPERUSER} -d ${POSTGRES_DEFAULT_DB} -h 127.0.0.1 -p 5432"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 25s
+
+    shm_size: 256mb
+
+    networks:
+      - moh_backend_network
+
+
+  # ============================================================================
+  # PGADMIN
+  # ============================================================================
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: moh_pgadmin
+    restart: always
+
+    depends_on:
+      moh_postgres:
+        condition: service_healthy
+
+    ports:
+      - "${PGADMIN_HOST_PORT:-55050}:80"
+
+    env_file:
+      - ./.env
+
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+
+      # False keeps setup simple for a single-server deployment.
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      TZ: ${TZ:-Africa/Nairobi}
+
+    volumes:
+      # Persists saved pgAdmin servers/preferences.
+      - moh_pgadmin_data:/var/lib/pgadmin
+
+    networks:
+      - moh_backend_network
+
+
+  # ============================================================================
+  # POSTGRES BACKUP SERVICE
+  # ============================================================================
+  postgres_backup:
+    image: prodrigestivill/postgres-backup-local:16
+    container_name: moh_postgres_backup
+    restart: always
+
+    depends_on:
+      moh_postgres:
+        condition: service_healthy
+
+    env_file:
+      - ./.env
+
+    environment:
+      # Connect to Postgres through Docker internal DNS.
+      POSTGRES_HOST: moh_postgres
+      POSTGRES_PORT: 5432
+
+      # Superuser is used so the backup service can dump all configured DBs.
+      # Keep this credential secure.
+      POSTGRES_USER: ${POSTGRES_SUPERUSER}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+
+      # Comma-separated database list.
+      # Example:
+      #   forecasting_tool_db,smart_tool_db,indicator_tracking_db
+      #
+      # The backup image supports POSTGRES_DB as a database name/list depending
+      # on image version. For maximum reliability, keep this aligned with your
+      # restore testing process.
+      POSTGRES_DB: ${BACKUP_DATABASES}
+
+      # Cron schedule inside the container.
+      # Default: every day at 02:17 Africa/Nairobi time.
+      SCHEDULE: ${BACKUP_SCHEDULE:-17 2 * * *}
+
+      # Backup retention policy.
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+      BACKUP_KEEP_WEEKS: ${BACKUP_KEEP_WEEKS:-4}
+      BACKUP_KEEP_MONTHS: ${BACKUP_KEEP_MONTHS:-6}
+
+      # Compression suffix.
+      BACKUP_SUFFIX: ${BACKUP_SUFFIX:-.sql.gz}
+
+      TZ: ${TZ:-Africa/Nairobi}
+
+    volumes:
+      # Host-mounted backup location.
+      # This makes backup files visible outside the container at:
+      #   ./database/backups
+      - ./database/backups:/backups
+
+    networks:
+      - moh_backend_network
+
+
+# ==============================================================================
+# NETWORKS
+# ==============================================================================
+networks:
+  # External network shared with all application stacks.
+  #
+  # Create it once before starting this stack:
+  #   docker network create moh_backend_network
+  #
+  # Then attach each app backend service to this same external network.
+  moh_backend_network:
+    external: true
+
+
+# ==============================================================================
+# VOLUMES
+# ==============================================================================
+volumes:
+  # Holds the actual PostgreSQL database cluster.
+  # This survives container rebuilds and normal compose shutdowns.
+  moh_postgres_data:
+    driver: local
+
+  # Holds pgAdmin configuration.
+  moh_pgadmin_data:
+    driver: local
