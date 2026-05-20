@@ -90,7 +90,7 @@ services:
     shm_size: 256mb
 
     networks:
-      - moh_backend_network
+      - moh_db_network
 
 
   # ============================================================================
@@ -124,7 +124,7 @@ services:
       - moh_pgadmin_data:/var/lib/pgadmin
 
     networks:
-      - moh_backend_network
+      - moh_db_network
 
 
   # ============================================================================
@@ -182,7 +182,7 @@ services:
       - ./database/backups:/backups
 
     networks:
-      - moh_backend_network
+      - moh_db_network
 
 
 # ==============================================================================
@@ -192,10 +192,10 @@ networks:
   # External network shared with all application stacks.
   #
   # Create it once before starting this stack:
-  #   docker network create moh_backend_network
+  #   docker network create moh_db_network
   #
   # Then attach each app backend service to this same external network.
-  moh_backend_network:
+  moh_db_network:
     external: true
 
 
