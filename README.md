@@ -174,7 +174,7 @@ DATABASE_URL=postgresql+asyncpg://smart_tool_user:SMART_PASSWORD@<server-ip-or-d
 pgAdmin is exposed on:
 
 ```text
-http://<server-ip-or-domain>:55050
+http://<server-ip-or-domain>:5566
 ```
 
 The login credentials are configured in `.env`:

@@ -106,7 +106,7 @@ services:
         condition: service_healthy
 
     ports:
-      - "${PGADMIN_HOST_PORT:-55050}:80"
+      - "${PGADMIN_HOST_PORT:-5566}:80"
 
     env_file:
       - ./.env
