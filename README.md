@@ -160,13 +160,13 @@ Do not use `localhost` from inside an app container. Inside a container, `localh
 If an app or admin tool is outside the Docker network, it can connect using:
 
 ```text
-<server-ip-or-domain>:55432
+<server-ip-or-domain>:5678
 ```
 
 Example:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://smart_tool_user:SMART_PASSWORD@<server-ip-or-domain>:55432/smart_tool_db
+DATABASE_URL=postgresql+asyncpg://smart_tool_user:SMART_PASSWORD@<server-ip-or-domain>:5678/smart_tool_db
 ```
 
 ## pgAdmin

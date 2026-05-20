@@ -48,7 +48,7 @@ services:
     #   If all apps run inside Docker on this server, you can remove this `ports`
     #   section entirely and use only Docker internal networking.
     ports:
-      - "${POSTGRES_HOST_PORT:-55432}:5432"
+      - "${POSTGRES_HOST_PORT:-5678}:5432"
 
     env_file:
       - ./.env
